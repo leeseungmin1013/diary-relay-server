@@ -1,14 +1,12 @@
 import express from "express";
 import cors from "cors";
-import { GoogleGenAI, Type } from "@google/genai";
+import fetch from "node-fetch";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 const langMap = {
   en: "English",
@@ -27,11 +25,18 @@ app.post("/api/diary", async (req, res) => {
   }
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `User diary entry: "${content}"`,
-      config: {
-        systemInstruction: `
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: `
 You are an AI model used through a thin backend relay server.
 
 GOAL:
@@ -50,20 +55,28 @@ RULES:
 - No markdown
 - Use "Sage" if original
 - Respond in ${targetLang}
-`,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            quote: { type: Type.STRING },
-            author: { type: Type.STRING },
-          },
-          required: ["quote", "author"],
-        },
-      },
-    });
 
-    res.json(JSON.parse(response.text));
+Diary entry:
+"${content}"
+                  `.trim(),
+                },
+              ],
+            },
+          ],
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    const text =
+      data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!text) {
+      throw new Error("Empty Gemini response");
+    }
+
+    res.json(JSON.parse(text));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "AI generation failed" });
