@@ -76,7 +76,30 @@ Diary entry:
       throw new Error("Empty Gemini response");
     }
 
-    res.json(JSON.parse(text));
+    const text =
+  data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+if (!text) {
+  throw new Error("Empty Gemini response");
+}
+
+// 🔐 Gemini JSON 안전 파싱
+let parsed;
+try {
+  parsed = JSON.parse(text);
+} catch {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) {
+    throw new Error("Invalid JSON from Gemini");
+  }
+  parsed = JSON.parse(match[0]);
+}
+
+res.json({
+  quote: parsed.quote || "",
+  author: parsed.author || "Sage",
+});
+
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "AI generation failed" });
