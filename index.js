@@ -3,11 +3,19 @@ import cors from "cors";
 import fetch from "node-fetch";
 
 const app = express();
+
+// ===== Middleware =====
 app.use(cors());
 app.use(express.json());
 
+// ===== Environment =====
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+if (!GEMINI_API_KEY) {
+  console.error("❌ GEMINI_API_KEY is not set");
+}
+
+// ===== Language Map =====
 const langMap = {
   en: "English",
   ko: "Korean",
@@ -16,11 +24,12 @@ const langMap = {
   es: "Spanish",
 };
 
+// ===== API Route =====
 app.post("/api/diary", async (req, res) => {
   const { content, language = "en" } = req.body;
   const targetLang = langMap[language] || "English";
 
-  if (!content) {
+  if (!content || typeof content !== "string") {
     return res.status(400).json({ error: "Missing diary content" });
   }
 
@@ -29,7 +38,9 @@ app.post("/api/diary", async (req, res) => {
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           contents: [
             {
@@ -37,10 +48,10 @@ app.post("/api/diary", async (req, res) => {
               parts: [
                 {
                   text: `
-You are an AI model used through a thin backend relay server.
+You are an AI accessed through a thin backend relay server.
 
 GOAL:
-Generate ONE short philosophical quote reflecting the diary entry.
+Generate ONE short philosophical quote that reflects the diary entry.
 
 OUTPUT FORMAT (JSON ONLY):
 {
@@ -49,7 +60,7 @@ OUTPUT FORMAT (JSON ONLY):
 }
 
 RULES:
-- One sentence only
+- Exactly ONE sentence
 - Calm, reflective, philosophical
 - No explanation
 - No markdown
@@ -70,43 +81,41 @@ Diary entry:
     const data = await response.json();
 
     const text =
-      data.candidates?.[0]?.content?.parts?.[0]?.text;
+      data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!text) {
-      throw new Error("Empty Gemini response");
+      throw new Error("Empty response from Gemini");
     }
 
-    const text =
-  data.candidates?.[0]?.content?.parts?.[0]?.text;
+    // ===== Safe JSON Parsing =====
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) {
+        throw new Error("Invalid JSON format from Gemini");
+      }
+      parsed = JSON.parse(match[0]);
+    }
 
-if (!text) {
-  throw new Error("Empty Gemini response");
-}
-
-// 🔐 Gemini JSON 안전 파싱
-let parsed;
-try {
-  parsed = JSON.parse(text);
-} catch {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) {
-    throw new Error("Invalid JSON from Gemini");
-  }
-  parsed = JSON.parse(match[0]);
-}
-
-res.json({
-  quote: parsed.quote || "",
-  author: parsed.author || "Sage",
-});
-
-  } catch (e) {
-    console.error(e);
+    res.json({
+      quote: parsed.quote || "",
+      author: parsed.author || "Sage",
+    });
+  } catch (error) {
+    console.error("❌ Gemini Relay Error:", error);
     res.status(500).json({ error: "AI generation failed" });
   }
 });
 
+// ===== Health Check (optional but useful) =====
+app.get("/", (_, res) => {
+  res.send("Diary relay server is running");
+});
+
+// ===== Start Server =====
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("Relay server running");
+  console.log(`✅ Relay server running on port ${PORT}`);
 });
